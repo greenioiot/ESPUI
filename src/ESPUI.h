@@ -1,12 +1,13 @@
 #pragma once
 
 // comment out to turn off debug output
-// #define DEBUG_ESPUI true
+#define DEBUG_ESPUI true
 #define WS_AUTHENTICATION false
 
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <stdlib_noniso.h>
+#include <SD.h>
 #ifdef ESP32
 	#if (ESP_IDF_VERSION_MAJOR == 4 && ESP_IDF_VERSION_MINOR >= 4) || ESP_IDF_VERSION_MAJOR > 4
 		#include <LittleFS.h>
@@ -34,7 +35,7 @@
 #include <ESPAsyncTCP.h>
 #include <Hash.h>
 
-#define FILE_WRITING "w"
+#define FILE_WRITE "w"
 
 #endif
 
@@ -87,13 +88,16 @@ enum Verbosity : uint8_t
 class ESPUIClass
 {
 public:
+
+#ifdef ESP32
     ESPUIClass()
     {
-#ifdef ESP32
         ControlsSemaphore = xSemaphoreCreateMutex();
         xSemaphoreGive(ControlsSemaphore);
+    }
+    SemaphoreHandle_t ControlsSemaphore = NULL;
 #endif // def ESP32
-	}
+
     unsigned int jsonUpdateDocumentSize = 2000;
 #ifdef ESP8266
     unsigned int jsonInitialDocumentSize = 2000;
@@ -117,25 +121,38 @@ public:
     void prepareFileSystem(bool format = true); // Initially preps the filesystem and loads a lot of
                               // stuff into LITTLEFS
     void list(); // Lists LITTLEFS directory
-    void writeFile(const char* path, const char* data);
 
     uint16_t addControl(ControlType type, const char* label);
     uint16_t addControl(ControlType type, const char* label, const String& value);
     uint16_t addControl(ControlType type, const char* label, const String& value, ControlColor color);
     uint16_t addControl(ControlType type, const char* label, const String& value, ControlColor color, uint16_t parentControl);
-    uint16_t addControl(ControlType type, const char* label, const String& value, ControlColor color, uint16_t parentControl, std::function<void(Control*, int)> callback);
+    uint16_t addControl(ControlType type, const char* label, const String& value, ControlColor color, uint16_t parentControl, void (*callback)(Control*, int));
+    uint16_t addControl(ControlType type, const char* label, const String& value, ControlColor color, uint16_t parentControl, void (*callback)(Control*, int, void *), void* UserData);
 
     bool removeControl(uint16_t id, bool force_rebuild_ui = false);
 
     // create Elements
     // Create Event Button
-    uint16_t button(const char* label, std::function<void(Control*, int)> callback, ControlColor color, const String& value = "");
-    uint16_t switcher(const char* label, std::function<void(Control*, int)> callback, ControlColor color, bool startState = false); // Create Toggle Button
-    uint16_t pad(const char* label, std::function<void(Control*, int)> callback, ControlColor color); // Create Pad Control
-    uint16_t padWithCenter(const char* label, std::function<void(Control*, int)> callback, ControlColor color); // Create Pad Control with Centerbutton
-    uint16_t slider(const char* label, std::function<void(Control*, int)> callback, ControlColor color, int value, int min = 0, int max = 100); // Create Slider Control
-    uint16_t number(const char* label, std::function<void(Control*, int)> callback, ControlColor color, int value, int min = 0, int max = 100); // Create a Number Input Control
-    uint16_t text(const char* label, std::function<void(Control*, int)> callback, ControlColor color, const String& value = ""); // Create a Text Input Control
+    uint16_t button(const char* label, void (*callback)(Control*, int), ControlColor color, const String& value = "");
+    uint16_t button(const char* label, void (*callback)(Control*, int, void*), ControlColor color, const String& value, void* UserData);
+
+    uint16_t switcher(const char* label, void (*callback)(Control*, int), ControlColor color, bool startState = false); // Create Toggle Button
+    uint16_t switcher(const char* label, void (*callback)(Control*, int, void*), ControlColor color, bool startState, void* UserData); // Create Toggle Button
+
+    uint16_t pad(const char* label, void (*callback)(Control*, int), ControlColor color); // Create Pad Control
+    uint16_t pad(const char* label, void (*callback)(Control*, int, void*), ControlColor color, void* UserData); // Create Pad Control
+
+    uint16_t padWithCenter(const char* label, void (*callback)(Control*, int), ControlColor color); // Create Pad Control with Centerbutton
+    uint16_t padWithCenter(const char* label, void (*callback)(Control*, int, void*), ControlColor color, void* UserData); // Create Pad Control with Centerbutton
+
+    uint16_t slider(const char* label, void (*callback)(Control*, int), ControlColor color, int value, int min = 0, int max = 100); // Create Slider Control
+    uint16_t slider(const char* label, void (*callback)(Control*, int, void*), ControlColor color, int value, int min, int max, void* UserData); // Create Slider Control
+
+    uint16_t number(const char* label, void (*callback)(Control*, int), ControlColor color, int value, int min = 0, int max = 100); // Create a Number Input Control
+    uint16_t number(const char* label, void (*callback)(Control*, int, void*), ControlColor color, int value, int min, int max, void* UserData); // Create a Number Input Control
+
+    uint16_t text(const char* label, void (*callback)(Control*, int), ControlColor color, const String& value = ""); // Create a Text Input Control
+    uint16_t text(const char* label, void (*callback)(Control*, int, void*), ControlColor color, const String& value, void* UserData); // Create a Text Input Control
 
     // Output only
     uint16_t label(const char* label, ControlColor color,
@@ -144,10 +161,10 @@ public:
     uint16_t gauge(const char* label, ControlColor color, int value, int min = 0,
         int max = 100); // Create Gauge display
     uint16_t separator(const char* label); //Create separator
-    uint16_t fileDisplay(const char* label, ControlColor color, String filename);
 
     // Input only
-    uint16_t accelerometer(const char* label, std::function<void(Control*, int)> callback, ControlColor color);
+    uint16_t accelerometer(const char* label, void (*callback)(Control*, int), ControlColor color);
+    uint16_t accelerometer(const char* label, void (*callback)(Control*, int, void*), ControlColor color, void* UserData);
 
     // Update Elements
 
@@ -178,9 +195,9 @@ public:
     void clearGraph(uint16_t id, int clientId = -1);
     void addGraphPoint(uint16_t id, int nValue, int clientId = -1);
 
-    void setPanelStyle(uint16_t id, const String& style, int clientId = -1);
-    void setElementStyle(uint16_t id, const String& style, int clientId = -1);
-    void setInputType(uint16_t id, const String& type, int clientId = -1);
+    void setPanelStyle(uint16_t id, String style, int clientId = -1);
+    void setElementStyle(uint16_t id, String style, int clientId = -1);
+    void setInputType(uint16_t id, String type, int clientId = -1);
 
     void setPanelWide(uint16_t id, bool wide);
     void setVertical(uint16_t id, bool vert = true);
@@ -195,69 +212,14 @@ public:
     void jsonDom(uint16_t startidx, AsyncWebSocketClient* client = nullptr, bool Updating = false);
 
     Verbosity verbosity = Verbosity::Quiet;
-    uint32_t  GetNextControlChangeId();
-    // emulate former extended callback API by using an intermediate lambda (no deprecation)
-    uint16_t addControl(ControlType type, const char* label, const String& value, ControlColor color, uint16_t parentControl, std::function<void(Control*, int, void*)> callback, void* userData)
-    {
-        return addControl(type, label, value, color, parentControl, [callback, userData](Control* sender, int type){ callback(sender, type, userData); });
-    }
-    uint16_t button(const char* label, std::function<void(Control*, int, void*)> callback, ControlColor color, const String& value, void* userData)
-    {
-        return button(label, [callback, userData](Control* sender, int type){ callback(sender, type, userData); }, color, value);
-    }
-    uint16_t switcher(const char* label, std::function<void(Control*, int, void*)> callback, ControlColor color, bool startState, void* userData)
-    {
-        return switcher(label, [callback, userData](Control* sender, int type){ callback(sender, type, userData); }, color, startState);
-    }
-    uint16_t pad(const char* label, std::function<void(Control*, int, void*)> callback, ControlColor color, void* userData)
-    {
-        return pad(label, [callback, userData](Control* sender, int type){ callback(sender, type, userData); }, color);
-    }
-    uint16_t padWithCenter(const char* label, std::function<void(Control*, int, void*)> callback, ControlColor color, void* userData)
-    {
-        return padWithCenter(label, [callback, userData](Control* sender, int type){ callback(sender, type, userData); }, color);
-    }
-    uint16_t slider(const char* label, std::function<void(Control*, int, void*)> callback, ControlColor color, int value, int min, int max, void* userData)
-    {
-        return slider(label, [callback, userData](Control* sender, int type){ callback(sender, type, userData); }, color, value, min, max);
-    }
-    uint16_t number(const char* label, std::function<void(Control*, int, void*)> callback, ControlColor color, int value, int min, int max, void* userData)
-    {
-        return number(label, [callback, userData](Control* sender, int type){ callback(sender, type, userData); }, color, value, min, max);
-    }
-    uint16_t text(const char* label, std::function<void(Control*, int, void*)> callback, ControlColor color, const String& value, void* userData)
-    {
-        return text(label, [callback, userData](Control* sender, int type){ callback(sender, type, userData); } , color, value);
-    }
-    uint16_t accelerometer(const char* label, std::function<void(Control*, int, void*)> callback, ControlColor color, void* userData)
-    {
-        return accelerometer(label, [callback, userData](Control* sender, int type){ callback(sender, type, userData); }, color);
-    }
-
-    AsyncWebServer* WebServer() {return server;}
-    AsyncWebSocket* WebSocket() {return ws;}
-
-#if defined(ESP32)
-#   if (ESP_IDF_VERSION_MAJOR == 4 && ESP_IDF_VERSION_MINOR >= 4) || ESP_IDF_VERSION_MAJOR > 4
-        fs::LittleFSFS & EspuiLittleFS = LittleFS;
-    #else
-        fs::LITTLEFSFS & EspuiLittleFS = LITTLEFS;
-#   endif
-#else
-    fs::FS & EspuiLittleFS = LittleFS;
-#endif
+    AsyncWebServer* server;
 
 protected:
     friend class ESPUIclient;
     friend class ESPUIcontrol;
 
-#ifdef ESP32
-    SemaphoreHandle_t ControlsSemaphore = NULL;
-#endif // def ESP32
-
     void        RemoveToBeDeletedControls();
 
-    AsyncWebServer* server;
     AsyncWebSocket* ws;
 
     const char* basicAuthUsername = nullptr;
@@ -265,17 +227,15 @@ protected:
     bool basicAuth = true;
     uint16_t controlCount = 0;
 
-    uint16_t addControl(ControlType type, const char* label, const String& value, ControlColor color, uint16_t parentControl, Control* control);
-
 #define ClientUpdateType_t ESPUIclient::ClientUpdateType_t
     void NotifyClients(ClientUpdateType_t newState);
     void NotifyClient(uint32_t WsClientId, ClientUpdateType_t newState);
+    void ClearControlUpdateFlags();
 
     bool SendJsonDocToWebSocket(ArduinoJson::DynamicJsonDocument& document, uint16_t clientId);
 
     std::map<uint32_t, ESPUIclient*> MapOfClients;
 
-    uint32_t    ControlChangeID = 0;
 };
 
 extern ESPUIClass ESPUI;
